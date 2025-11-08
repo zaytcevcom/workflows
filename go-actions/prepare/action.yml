@@ -1,0 +1,164 @@
+name: "Prepare env"
+description: "Install Task (optional), prepare SAFE_DIR, Docker volumes, DOCKER_RUN_BASE; setup DEV_TOOLS_OVERRIDE; or cleanup"
+
+inputs:
+  mode:
+    description: "prepare | cleanup"
+    required: false
+    default: prepare
+  install_task:
+    description: "Install go-task binary"
+    required: false
+    default: "true"
+  salt:
+    description: "Optional salt for unique volume names (useful in matrix)"
+    required: false
+    default: ""
+  project_dir:
+    description: "Project subdirectory inside the monorepo (e.g. auth-service). Use '.' for repo root."
+    required: false
+    default: "."
+  copy_scope:
+    description: "What to copy into SAFE_DIR: 'repo' (entire repo) or 'project' (only project_dir)."
+    required: false
+    default: "project"
+  seed_git_system_config:
+    description: "Seed /app/.gitconfig inside APP_VOL for private modules (uses GIT_USERNAME/GIT_TOKEN and REGISTRY)."
+    required: false
+    default: "true"
+  dev_tools_image:
+    description: "Docker image for dev tools (e.g. git.lo.ink/lo/tools/dev:1.24.1)"
+    required: false
+    default: "git.lo.ink/lo/tools/dev:1.24.1"
+
+outputs:
+  safe_dir:
+    description: "Prepared working directory path"
+    value: ${{ steps.out.outputs.safe_dir }}
+  safe_project_dir:
+    description: "SAFE_DIR joined with project_dir"
+    value: ${{ steps.out.outputs.safe_project_dir }}
+  docker_run_base:
+    description: "docker run base string for Taskfile"
+    value: ${{ steps.out.outputs.docker_run_base }}
+  dev_tools_override:
+    description: "Full docker run string for Taskfile (DEV_TOOLS_OVERRIDE)"
+    value: ${{ steps.out.outputs.dev_tools_override }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Compute volume names
+      id: names
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        repo="${GITHUB_REPOSITORY:-local/repo}"
+        run_id="${GITHUB_RUN_ID:-0}"
+        job="${GITHUB_JOB:-job}"
+        attempt="${GITHUB_RUN_ATTEMPT:-0}"
+        salt="${{ inputs.salt }}"
+        base="${repo}-${run_id}-${job}-${attempt}-${salt}"
+
+        if command -v sha256sum >/dev/null 2>&1; then
+          hash="$(printf "%s" "$base" | sha256sum | awk '{print substr($1,1,8)}')"
+        else
+          hash="$(printf "%s" "$base" | shasum -a 256 | awk '{print substr($1,1,8)}')"
+        fi
+
+        prefix="ci_${hash}"
+        echo "APP_VOL=${prefix}_app"         >> "$GITHUB_ENV"
+        echo "GOMOD_VOL=${prefix}_gomod"     >> "$GITHUB_ENV"
+        echo "GOCACHE_VOL=${prefix}_gocache" >> "$GITHUB_ENV"
+
+    - name: Install Task
+      if: ${{ inputs.mode == 'prepare' && inputs.install_task == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v task >/dev/null 2>&1; then
+          curl -sSL https://taskfile.dev/install.sh | sh -s -- -b /usr/local/bin
+        fi
+        task --version
+
+    - name: Prepare working dir outside /workspace
+      if: ${{ inputs.mode == 'prepare' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SAFE_DIR="${RUNNER_TEMP:-/tmp}/workdir"
+        mkdir -p "$SAFE_DIR"
+
+        case "${{ inputs.copy_scope }}" in
+          repo)
+            tar -C "$GITHUB_WORKSPACE" -cf - . | tar -C "$SAFE_DIR" -xf -
+            ;;
+          project)
+            proj="${{ inputs.project_dir }}"
+            test -d "$GITHUB_WORKSPACE/$proj" || { echo "::error::project_dir '$proj' not found"; exit 1; }
+            mkdir -p "$(dirname "$SAFE_DIR/$proj")"
+            tar -C "$GITHUB_WORKSPACE" -cf - "$proj" | tar -C "$SAFE_DIR" -xf -
+            ;;
+        esac
+
+        echo "SAFE_DIR=$SAFE_DIR" >> "$GITHUB_ENV"
+        SAFE_PROJECT_DIR="$SAFE_DIR/${{ inputs.project_dir }}"
+        echo "SAFE_PROJECT_DIR=$SAFE_PROJECT_DIR" >> "$GITHUB_ENV"
+
+    - name: Create and populate Docker volumes
+      if: ${{ inputs.mode == 'prepare' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker volume create "$APP_VOL" >/dev/null
+        docker volume create "$GOMOD_VOL" >/dev/null
+        docker volume create "$GOCACHE_VOL" >/dev/null
+        tar -C "${SAFE_DIR}" -cf - . | docker run --rm -i -v "${APP_VOL}:/app" alpine:3 sh -lc 'mkdir -p /app && tar -C /app -xf -'
+
+    - name: Export DOCKER_RUN_BASE and DEV_TOOLS_OVERRIDE
+      if: ${{ inputs.mode == 'prepare' }}
+      id: out
+      shell: bash
+      run: |
+        set -euo pipefail
+        EXTRA_ENV=""
+        for v in GIT_USERNAME GIT_TOKEN GOPRIVATE GONOSUMDB GOPROXY GOFLAGS GOWORK REGISTRY; do
+          EXTRA_ENV="${EXTRA_ENV} -e $v"
+        done
+
+        DOCKER_RUN_BASE="docker run --rm -v $APP_VOL:/app -v $GOMOD_VOL:/go/pkg/mod -v $GOCACHE_VOL:/root/.cache/go-build${EXTRA_ENV}"
+        echo "DOCKER_RUN_BASE=$DOCKER_RUN_BASE" >> "$GITHUB_ENV"
+
+        # optional gitconfig seed
+        if [ "${{ inputs.seed_git_system_config }}" = "true" ] && [ -n "${GIT_USERNAME:-}" ] && [ -n "${GIT_TOKEN:-}" ]; then
+          ENC_USER=$(python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["GIT_USERNAME"], safe=""))')
+          ENC_TOKEN=$(python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["GIT_TOKEN"], safe=""))')
+          REG="${REGISTRY:-git.lo.ink}"
+          ${DOCKER_RUN_BASE} -w /app alpine:3 sh -lc "
+            set -e
+            printf '%s\n' \
+              \"[url \\\"https://${ENC_USER}:${ENC_TOKEN}@${REG}/\\\"]\" \
+              \"    insteadOf = https://${REG}/\" \
+              \"[url \\\"https://${ENC_USER}:${ENC_TOKEN}@${REG}\\\"]\" \
+              \"    insteadOf = https://${REG}\" \
+              > /app/.gitconfig
+            chmod 600 /app/.gitconfig
+          "
+        fi
+
+        DEV_TOOLS_OVERRIDE="${DOCKER_RUN_BASE} --platform=linux/amd64 -e GOPRIVATE -e GONOSUMDB -e GOPROXY -e GOFLAGS -e GOWORK -e GIT_CONFIG_SYSTEM=/app/.gitconfig -w /app/${{ inputs.project_dir }} ${{ inputs.dev_tools_image }}"
+        echo "DEV_TOOLS_OVERRIDE=$DEV_TOOLS_OVERRIDE" >> "$GITHUB_ENV"
+
+        {
+          echo "safe_dir=$SAFE_DIR"
+          echo "safe_project_dir=$SAFE_PROJECT_DIR"
+          echo "docker_run_base=$DOCKER_RUN_BASE"
+          echo "dev_tools_override=$DEV_TOOLS_OVERRIDE"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Cleanup volumes
+      if: ${{ inputs.mode == 'cleanup' }}
+      shell: bash
+      run: |
+        docker volume rm -f "$APP_VOL" "$GOMOD_VOL" "$GOCACHE_VOL" || true

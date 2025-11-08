@@ -1,0 +1,181 @@
+name: "Build & Push Docker image"
+description: "Build a Docker image (multi-arch ready) with BuildKit and push to registry"
+
+inputs:
+  registry:
+    description: "Registry host (e.g. git.lo.ink)"
+    required: true
+  registry_namespace:
+    description: "Registry namespace/org (e.g. lo/identity)"
+    required: true
+  service_name:
+    description: "Service name (used for image name and default context)"
+    required: true
+  dockerfile:
+    description: "Path to Dockerfile"
+    required: true
+  context:
+    description: "Build context path"
+    required: true
+  image_tag:
+    description: "Image tag to build (e.g. main-123)"
+    required: true
+  latest_tag:
+    description: "Also tag & push 'latest' (true/false)"
+    required: false
+    default: "true"
+  platform:
+    description: "Target platform(s) (e.g. linux/amd64 or linux/amd64,linux/arm64)"
+    required: false
+    default: "linux/amd64,linux/arm64"
+  goprivate:
+    description: "GOPRIVATE value during build args (defaults to registry)"
+    required: false
+    default: ""
+  target:
+    description: "Docker build target (e.g. app or migrate)"
+    required: false
+    default: ""
+  no_cache:
+    description: "Set to true to disable BuildKit cache"
+    required: false
+    default: "true"
+
+outputs:
+  image:
+    description: "Built image reference"
+    value: ${{ steps.build.outputs.image }}
+  latest:
+    description: "Latest tag reference (if used)"
+    value: ${{ steps.build.outputs.latest }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs / set defaults
+      id: prep
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${{ inputs.goprivate }}" ]; then
+          echo "GOPRIVATE_EFF=${{ inputs.registry }}" >> "$GITHUB_ENV"
+        else
+          echo "GOPRIVATE_EFF=${{ inputs.goprivate }}" >> "$GITHUB_ENV"
+        fi
+
+    - name: Derive build modes
+      id: deriv
+      shell: bash
+      env:
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        set -euo pipefail
+        if [[ "${PLATFORM}" == *","* ]]; then
+          echo "multiarch=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "multiarch=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Enable binfmt/qemu for cross-arch (only if multi-arch)
+      if: steps.deriv.outputs.multiarch == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Setting up QEMU binfmt for cross-architecture builds..."
+        docker run --privileged --rm tonistiigi/binfmt --install all || true
+        docker buildx create --name lo-multiarch --driver docker-container --use || docker buildx use lo-multiarch
+        docker buildx inspect --bootstrap
+
+    - name: Registry login
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ env.REGISTRY_USERNAME }}
+        REGISTRY_PASSWORD: ${{ env.REGISTRY_PASSWORD }}
+      run: |
+        set -euo pipefail
+        echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY}" -u "${REGISTRY_USERNAME}" --password-stdin || true
+
+    - name: Build (single-arch or multi-arch)
+      id: build
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_NAMESPACE: ${{ inputs.registry_namespace }}
+        SERVICE_NAME: ${{ inputs.service_name }}
+        IMAGE_TAG: ${{ inputs.image_tag }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        CONTEXT: ${{ inputs.context }}
+        GOPRIVATE_EFF: ${{ env.GOPRIVATE_EFF }}
+        GIT_USERNAME: ${{ env.GIT_USERNAME }}
+        GIT_TOKEN: ${{ env.GIT_TOKEN }}
+        PLATFORM: ${{ inputs.platform }}
+        LATEST_FLAG: ${{ inputs.latest_tag }}
+        BUILD_TARGET: ${{ inputs.target }}
+        NO_CACHE_INPUT: ${{ inputs.no_cache }}
+      run: |
+        set -euo pipefail
+        export DOCKER_BUILDKIT=1
+
+        IMAGE="${REGISTRY}/${REGISTRY_NAMESPACE}/${SERVICE_NAME}:${IMAGE_TAG}"
+        LATEST="${REGISTRY}/${REGISTRY_NAMESPACE}/${SERVICE_NAME}:latest"
+
+        echo "Target image: ${IMAGE}"
+        echo "Platforms: ${PLATFORM}"
+
+        TAG_ARGS=( -t "${IMAGE}" )
+        if [ "${LATEST_FLAG}" = "true" ]; then
+          TAG_ARGS+=( -t "${LATEST}" )
+        fi
+
+        EXTRA_TARGET=()
+        if [ -n "${BUILD_TARGET}" ]; then
+          EXTRA_TARGET+=( --target "${BUILD_TARGET}" )
+        fi
+
+        NO_CACHE_ARG=()
+        if [ "${NO_CACHE_INPUT}" = "true" ]; then
+          NO_CACHE_ARG+=( --no-cache )
+        fi
+        
+        COMMON_ARGS=(
+          --secret id=GIT_USERNAME,env=GIT_USERNAME
+          --secret id=GIT_TOKEN,env=GIT_TOKEN
+          --build-arg "GOPRIVATE=${GOPRIVATE_EFF}"
+          -f "${DOCKERFILE}"
+          "${CONTEXT}"
+        )
+
+        if [[ "${PLATFORM}" == *","* ]]; then
+          # Multi-arch build
+          docker buildx build \
+            --progress=plain \
+            --platform "${PLATFORM}" \
+            "${TAG_ARGS[@]}" \
+            --push \
+            "${NO_CACHE_ARG[@]}" \
+            "${EXTRA_TARGET[@]}" \
+            "${COMMON_ARGS[@]}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          if [ "${LATEST_FLAG}" = "true" ]; then
+            echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
+          fi
+        else
+          # Single-arch build
+          docker buildx create --name lo-single --driver docker-container --use || docker buildx use lo-single
+          docker buildx inspect --bootstrap
+
+          docker buildx build \
+            --progress=plain \
+            --platform "${PLATFORM}" \
+            "${TAG_ARGS[@]}" \
+            --push \
+            "${NO_CACHE_ARG[@]}" \
+            "${EXTRA_TARGET[@]}" \
+            "${COMMON_ARGS[@]}"
+
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          if [ "${LATEST_FLAG}" = "true" ]; then
+            echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
+          fi
+        fi
