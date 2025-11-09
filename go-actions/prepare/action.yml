@@ -44,6 +44,9 @@ outputs:
   dev_tools_override:
     description: "Full docker run string for Taskfile (DEV_TOOLS_OVERRIDE)"
     value: ${{ steps.out.outputs.dev_tools_override }}
+  dev_tools_with_network_override:
+    description: "Full docker run string with network for Taskfile (DEV_TOOLS_WITH_NETWORK)"
+    value: ${{ steps.out.outputs.dev_tools_with_network_override }}
 
 runs:
   using: "composite"
@@ -150,11 +153,16 @@ runs:
         DEV_TOOLS_OVERRIDE="${DOCKER_RUN_BASE} --platform=linux/amd64 -e GOPRIVATE -e GONOSUMDB -e GOPROXY -e GOFLAGS -e GOWORK -e GIT_CONFIG_SYSTEM=/app/.gitconfig -w /app/${{ inputs.project_dir }} ${{ inputs.dev_tools_image }}"
         echo "DEV_TOOLS_OVERRIDE=$DEV_TOOLS_OVERRIDE" >> "$GITHUB_ENV"
 
+        NETWORK_PROJ="${TEST_COMPOSE_PROJECT_NAME:-${{ inputs.project_dir }}}"
+        DEV_TOOLS_WITH_NETWORK_OVERRIDE="${DOCKER_RUN_BASE} --platform=linux/amd64 --network ${NETWORK_PROJ}_test -e GOPRIVATE -e GONOSUMDB -e GOPROXY -e GOFLAGS -e GOWORK -e GIT_CONFIG_SYSTEM=/app/.gitconfig -w /app/${{ inputs.project_dir }} ${{ inputs.dev_tools_image }}"
+        echo "DEV_TOOLS_WITH_NETWORK_OVERRIDE=$DEV_TOOLS_WITH_NETWORK_OVERRIDE" >> "$GITHUB_ENV"
+
         {
           echo "safe_dir=$SAFE_DIR"
           echo "safe_project_dir=$SAFE_PROJECT_DIR"
           echo "docker_run_base=$DOCKER_RUN_BASE"
           echo "dev_tools_override=$DEV_TOOLS_OVERRIDE"
+          echo "dev_tools_with_network_override=$DEV_TOOLS_WITH_NETWORK_OVERRIDE"
         } >> "$GITHUB_OUTPUT"
 
     - name: Cleanup volumes
