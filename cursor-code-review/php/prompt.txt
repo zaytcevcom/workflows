@@ -144,11 +144,13 @@ Submission:
 - If there ARE issues to report, submit ONE review containing ONLY inline comments plus an optional concise summary body. Use the appropriate API format based on platform:
 - For GitHub (IS_GITEA=false): Build a JSON array like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
   Submit via: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/reviews -f event=COMMENT -f body="$SUMMARY" -f comments='[$COMMENTS_JSON]'
-- For Gitea (IS_GITEA=true): Build a JSON array like: [{ "path": "<file>", "line": <new_line_number>, "body": "..." }]
-  IMPORTANT: Use actual line numbers from the new file version (new_line), NOT diff position. Line numbers are required for Gitea to properly anchor comments to specific lines.
-  For deleted lines, use: [{ "path": "<file>", "old_line": <old_line_number>, "body": "..." }]
-  Submit via: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/comments -f body="$BODY" -f path="$PATH" -f line="$LINE" (submit each comment individually, or use batch if supported)
-  Alternatively, if batch is supported: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/comments -f comments='[$COMMENTS_JSON]'
+- For Gitea (IS_GITEA=true): 
+  IMPORTANT: Use actual line numbers from the new file version (new_line), NOT diff position. Line numbers are critical for Gitea to properly anchor comments.
+  Build a JSON object with structure: { "body": "<optional_summary>", "commit_id": "${GITHUB_PR_HEAD_SHA}", "event": "COMMENT", "comments": [{ "body": "<comment_text>", "path": "<file_path>", "new_position": <line_number>, "old_position": 0 }] }
+  For comments on deleted lines (old version), use: "old_position": <old_line_number>, "new_position": 0
+  For comments on new lines, use: "new_position": <line_number>, "old_position": 0
+  Submit via: echo "$JSON_OBJECT" | gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/reviews -X POST --input -
+  Example JSON: {"body":"","commit_id":"abc123","event":"COMMENT","comments":[{"body":"⚠️ Missing error handling","path":"src/Service.php","new_position":42,"old_position":0}]}
 - Do NOT use: gh pr review --approve or --request-changes
 
 Blocking behavior:
