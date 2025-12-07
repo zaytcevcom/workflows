@@ -26,6 +26,7 @@ Objectives:
 Procedure:
 - Get PR description and title: gh pr view --json title,body,number
 - Get existing comments: gh pr view --json comments
+- CRITICAL: Review ALL existing comments carefully. Note which files and lines already have comments. DO NOT create new comments on lines that already have comments unless the existing comment is clearly wrong or outdated.
 - Get diff: gh pr diff
 - Get changed files with patches: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/files --paginate --jq '.[] | {filename,patch,status}'
 - Compute exact inline anchors for each issue (file path + diff position/line number). Comments MUST be placed inline on the changed line in the diff, not as top-level comments.
@@ -139,8 +140,15 @@ Commenting rules:
 - Max 10 inline comments total; prioritize the most critical issues
 - One issue per comment; place on the exact changed line
 - All issue comments MUST be inline (anchored to a file and line/position in the PR diff)
+- Keep comments VERY SHORT: maximum 1-2 sentences, ideally one sentence. Be concise and direct.
+- CRITICAL: Before creating a comment, check existing comments on the same file and line. If a comment already exists on that exact line, DO NOT create a duplicate or contradictory comment.
+- CRITICAL: Do NOT reference or use examples from previous commits or old code versions. Only review the CURRENT diff in this PR.
+- CRITICAL: Be consistent in your recommendations. If you suggest a solution, use the same approach throughout. Do not contradict yourself in different comments.
+- CRITICAL: If you see the same issue pattern multiple times, provide ONE comment on the first occurrence, not multiple comments with different suggestions.
 - Natural tone, specific and actionable; do not mention automated or high-confidence
 - Use emojis: 🚨 Critical 🔒 Security ⚡ Performance ⚠️ Logic ✅ Resolved ✨ Improvement 📋 Requirements 🏗️ Architecture 🐛 PHP 🗄️ Doctrine 🔧 Symfony 🔍 Code Quality 🧪 Testing
+- Example good comment: "⚠️ mb_convert_case with MB_CASE_TITLE may incorrectly handle apostrophes. Use custom logic to preserve case after apostrophes."
+- Example bad comment (too verbose): "⚠️ mb_convert_case с MB_CASE_TITLE может неправильно обработать имена с апострофами: "O'Brien" станет "O'brien" (строчная 'b' после апострофа). Рекомендуется использовать кастомную логику для сохранения правильного регистра после апострофов."
 
 Submission:
 - If there are NO issues to report and an existing top-level comment indicating "no issues" already exists (e.g., "✅ no issues", "No issues found", "LGTM"), do NOT submit another comment. Skip submission to avoid redundancy.

@@ -17,6 +17,7 @@ Objectives:
 Procedure:
 - Get PR description and title: gh pr view --json title,body,number
 - Get existing comments: gh pr view --json comments
+- CRITICAL: Review ALL existing comments carefully. Note which files and lines already have comments. DO NOT create new comments on lines that already have comments unless the existing comment is clearly wrong or outdated.
 - Get diff: gh pr diff
 - Get changed files with patches: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/files --paginate --jq '.[] | {filename,patch,status}'
 - Compute exact inline anchors for each issue (file path + diff position/line number). Comments MUST be placed inline on the changed line in the diff, not as top-level comments.
@@ -68,11 +69,17 @@ Procedure:
   * Dead code or unreachable code
   * Missing or incorrect error messages
 - Avoid duplicates: skip if similar feedback already exists on or near the same lines.
+- CRITICAL: Do NOT create comments that contradict existing comments on the same line. If a line already has a comment, either skip it or update the existing comment if it's clearly wrong.
+- CRITICAL: Do NOT reference code from previous commits or history. Only analyze the CURRENT PR diff. Do not suggest solutions based on how code looked in previous versions.
 
 Commenting rules:
 - Max 10 inline comments total; prioritize the most critical issues
 - One issue per comment; place on the exact changed line
 - All issue comments MUST be inline (anchored to a file and line/position in the PR diff)
+- CRITICAL: Before creating a comment, check existing comments on the same file and line. If a comment already exists on that exact line, DO NOT create a duplicate or contradictory comment.
+- CRITICAL: Do NOT reference or use examples from previous commits or old code versions. Only review the CURRENT diff in this PR.
+- CRITICAL: Be consistent in your recommendations. If you suggest a solution, use the same approach throughout. Do not contradict yourself in different comments.
+- CRITICAL: If you see the same issue pattern multiple times, provide ONE comment on the first occurrence, not multiple comments with different suggestions.
 - Natural tone, specific and actionable; do not mention automated or high-confidence
 - Use emojis: 🚨 Critical 🔒 Security ⚡ Performance ⚠️ Logic ✅ Resolved ✨ Improvement 📋 Requirements 🏗️ Architecture 🔍 Code Quality
 
