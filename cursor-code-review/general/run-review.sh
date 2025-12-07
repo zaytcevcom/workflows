@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH="$HOME/.local/bin:$PATH"
+
 if echo "${GITHUB_SERVER_URL}" | grep -q "gitea\|gitea.io"; then
   export IS_GITEA="true"
   echo "Detected Gitea instance"
