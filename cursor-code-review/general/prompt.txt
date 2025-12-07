@@ -18,10 +18,15 @@ Procedure:
 - Get PR description and title: gh pr view --json title,body,number
 - Get existing comments: gh pr view --json comments
 - Get diff: gh pr diff
-- Get changed files with patches to compute inline positions: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/files --paginate --jq '.[] | {filename,patch}'
-- If Gitea (IS_GITEA=true), also get line numbers: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/files --paginate --jq '.[] | {filename,additions,deletions,changes}'
+- Get changed files with patches: gh api repos/${GITHUB_REPOSITORY}/pulls/${GITHUB_PR_NUMBER}/files --paginate --jq '.[] | {filename,patch,status}'
 - Compute exact inline anchors for each issue (file path + diff position/line number). Comments MUST be placed inline on the changed line in the diff, not as top-level comments.
-- For Gitea: use actual line numbers (new_line) from the diff, not diff position. Line numbers are critical for Gitea to properly anchor comments.
+- For Gitea (IS_GITEA=true): CRITICAL - you MUST compute actual line numbers from the patch. Parse the patch to find line numbers:
+  * Lines starting with "+" are additions - use the line number shown in the patch (e.g., "@@ -10,5 +15,3 @@" means new lines start at line 15)
+  * Lines starting with "-" are deletions - use the old line number from the patch
+  * The patch format shows: @@ -old_start,old_count +new_start,new_count @@
+  * Track line numbers as you parse: new_position increments for "+" lines, old_position for "-" lines
+  * Example: If patch shows "@@ -42,3 +45,5 @@", the first "+" line is at new_position=45, first "-" line is at old_position=42
+  * Use these computed line numbers in new_position/old_position fields, NOT diff position
 - Detect prior top-level "no issues" style comments authored by this bot (match bodies like: "✅ no issues", "No issues found", "LGTM").
 - If CURRENT run finds issues and any prior "no issues" comments exist:
 - Prefer to remove them to avoid confusion:

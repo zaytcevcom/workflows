@@ -38,6 +38,10 @@ runs:
       shell: bash
       run: |
         GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        if [ ! -d "$GENERAL_PATH" ]; then
+          echo "❌ General action path not found: $GENERAL_PATH"
+          exit 1
+        fi
         chmod +x "$GENERAL_PATH/verify.sh"
         "$GENERAL_PATH/verify.sh"
 
@@ -45,6 +49,10 @@ runs:
       shell: bash
       run: |
         GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        if [ ! -d "$GENERAL_PATH" ]; then
+          echo "❌ General action path not found: $GENERAL_PATH"
+          exit 1
+        fi
         chmod +x "$GENERAL_PATH/git-config.sh"
         "$GENERAL_PATH/git-config.sh"
 
@@ -76,5 +84,9 @@ runs:
       shell: bash
       run: |
         GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        if [ ! -d "$GENERAL_PATH" ]; then
+          echo "❌ General action path not found: $GENERAL_PATH"
+          exit 1
+        fi
         chmod +x "$GENERAL_PATH/check-results.sh"
         "$GENERAL_PATH/check-results.sh"
