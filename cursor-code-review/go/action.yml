@@ -1,0 +1,81 @@
+name: 'Go Code Review'
+description: 'Automated Go code review using Cursor Agent - optimized for Go best practices, concurrency, error handling'
+inputs:
+  cursor_api_key:
+    description: 'Cursor API key'
+    required: true
+  model:
+    description: 'Model to use for review'
+    required: false
+    default: 'auto'
+  blocking_review:
+    description: 'Enable blocking review (fail workflow on critical issues 🚨 or 🔒). If true, workflow will fail if critical issues are found.'
+    required: false
+    default: 'false'
+  gh_token:
+    description: 'GitHub/Gitea token for PR comments'
+    required: true
+  custom_prompt:
+    description: 'Custom prompt to override default Go code review instructions. If provided, this will be used instead of the default Go prompt.'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Cursor CLI
+      shell: bash
+      run: |
+        GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        if [ ! -d "$GENERAL_PATH" ]; then
+          echo "❌ General action path not found: $GENERAL_PATH"
+          exit 1
+        fi
+        chmod +x "$GENERAL_PATH/setup.sh"
+        "$GENERAL_PATH/setup.sh"
+
+    - name: Verify Cursor CLI installation
+      shell: bash
+      run: |
+        GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        chmod +x "$GENERAL_PATH/verify.sh"
+        "$GENERAL_PATH/verify.sh"
+
+    - name: Configure git identity
+      shell: bash
+      run: |
+        GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        chmod +x "$GENERAL_PATH/git-config.sh"
+        "$GENERAL_PATH/git-config.sh"
+
+    - name: Perform automated Go code review
+      shell: bash
+      env:
+        CURSOR_API_KEY: ${{ inputs.cursor_api_key }}
+        MODEL: ${{ inputs.model }}
+        GH_TOKEN: ${{ inputs.gh_token }}
+        BLOCKING_REVIEW: ${{ inputs.blocking_review }}
+        CUSTOM_PROMPT: ${{ inputs.custom_prompt }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GITHUB_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+      run: |
+        GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        PROMPT_FILE="$GITHUB_ACTION_PATH/prompt.txt"
+        if [ ! -f "$PROMPT_FILE" ]; then
+          echo "❌ Go prompt file not found at $PROMPT_FILE"
+          exit 1
+        fi
+        chmod +x "$GENERAL_PATH/run-review.sh"
+        PROMPT_FILE="$PROMPT_FILE" "$GENERAL_PATH/run-review.sh"
+
+    - name: Check blocking review results
+      if: ${{ inputs.blocking_review == 'true' }}
+      shell: bash
+      run: |
+        GENERAL_PATH="$GITHUB_ACTION_PATH/../general"
+        chmod +x "$GENERAL_PATH/check-results.sh"
+        "$GENERAL_PATH/check-results.sh"
+
