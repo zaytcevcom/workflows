@@ -10,6 +10,10 @@ inputs:
     description: "Install go-task binary"
     required: false
     default: "true"
+  task_version:
+    description: "go-task version to install (e.g. v3.50.0)"
+    required: false
+    default: "v3.50.0"
   salt:
     description: "Optional salt for unique volume names (useful in matrix)"
     required: false
@@ -80,9 +84,30 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if ! command -v task >/dev/null 2>&1; then
-          curl -sSL https://taskfile.dev/install.sh | sh -s -- -b /usr/local/bin
+        if command -v task >/dev/null 2>&1; then
+          task --version
+          exit 0
         fi
+
+        VERSION="${{ inputs.task_version }}"
+        URL="https://github.com/go-task/task/releases/download/${VERSION}/task_linux_amd64.tar.gz"
+
+        for attempt in 1 2 3; do
+          if curl -fsSL --connect-timeout 30 --max-time 120 \
+             -o /tmp/task.tar.gz "$URL"; then
+            echo "Downloaded task ${VERSION} on attempt $attempt"
+            break
+          fi
+          if [ "$attempt" = 3 ]; then
+            echo "Failed to download task after 3 attempts" >&2
+            exit 1
+          fi
+          echo "Attempt $attempt failed, retrying in 10s..." >&2
+          sleep 10
+        done
+
+        sudo tar -xzf /tmp/task.tar.gz -C /usr/local/bin task
+        rm /tmp/task.tar.gz
         task --version
 
     - name: Prepare working dir outside /workspace
